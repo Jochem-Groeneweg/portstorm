@@ -1,2 +1,0 @@
-# Nmap 7.95 scan initiated Tue Apr  8 08:28:03 2025 as: nmap -A -sV -O -sC -T4 -Pn --script=vuln,http-enum,smb-enum-shares,dns-zone-transfer --script-args=vulns.showall --version-all --traceroute -oA nmap-tcp-comprehensive -p 21,22,80,443,8443,8880 87.66.5.234
-# Nmap done at Tue Apr  8 08:28:38 2025 -- 1 IP address (0 hosts up) scanned in 35.65 seconds
