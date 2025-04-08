@@ -7,6 +7,11 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 
 # ANSI color codes
 COLORS = {
@@ -372,6 +377,280 @@ def is_resumable_state(state: ScanState):
     return False
 
 
+def parse_comprehensive_scan(xml_file: str) -> Dict:
+    """Parse comprehensive Nmap scan results and return structured data."""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+
+        results = {
+            'host': {},
+            'ports': [],
+            'os': {},
+            'scripts': [],
+            'vulnerabilities': []
+        }
+
+        # Get host information
+        for host in root.findall('.//host'):
+            # Host status
+            status = host.find('.//status')
+            if status is not None:
+                results['host']['status'] = status.get('state', 'unknown')
+
+            # Host addresses
+            for addr in host.findall('.//address'):
+                addr_type = addr.get('addrtype', 'unknown')
+                results['host'][addr_type] = addr.get('addr', 'unknown')
+
+            # OS information
+            os_match = host.find('.//osmatch')
+            if os_match is not None:
+                results['os'] = {
+                    'name': os_match.get('name', 'unknown'),
+                    'accuracy': os_match.get('accuracy', 'unknown'),
+                    'line': os_match.get('line', 'unknown')
+                }
+
+            # Port information
+            for port in host.findall('.//port'):
+                port_info = {
+                    'port': port.get('portid', 'unknown'),
+                    'protocol': port.get('protocol', 'unknown'),
+                    'state': port.find('state').get('state', 'unknown') if port.find('state') is not None else 'unknown',
+                    'service': {
+                        'name': port.find('service').get('name', 'unknown') if port.find('service') is not None else 'unknown',
+                        'product': port.find('service').get('product', '') if port.find('service') is not None else '',
+                        'version': port.find('service').get('version', '') if port.find('service') is not None else '',
+                        'extrainfo': port.find('service').get('extrainfo', '') if port.find('service') is not None else ''
+                    }
+                }
+
+                # Script output
+                for script in port.findall('.//script'):
+                    script_info = {
+                        'id': script.get('id', 'unknown'),
+                        'output': script.get('output', '')
+                    }
+                    port_info['scripts'] = port_info.get(
+                        'scripts', []) + [script_info]
+
+                    # Check for vulnerabilities
+                    if 'vulners' in script.get('id', '').lower():
+                        for table in script.findall('.//table'):
+                            vuln_info = {
+                                'cve': table.get('key', 'unknown'),
+                                'score': table.find('.//elem[@key="cvss"]').text if table.find('.//elem[@key="cvss"]') is not None else 'unknown',
+                                'summary': table.find('.//elem[@key="summary"]').text if table.find('.//elem[@key="summary"]') is not None else 'unknown'
+                            }
+                            results['vulnerabilities'].append(vuln_info)
+
+                results['ports'].append(port_info)
+
+        return results
+    except ET.ParseError as e:
+        log_error(f"Error parsing comprehensive scan XML: {str(e)}")
+        return {}
+
+
+def display_scan_results(results: Dict):
+    """Display scan results in a neat, formatted way."""
+    if not results:
+        print_warning("No scan results to display")
+        return
+
+    # Display host information
+    print_header("📡 HOST INFORMATION")
+    if results['host']:
+        print_info(f"Status: {results['host'].get('status', 'unknown')}")
+        for addr_type, addr in results['host'].items():
+            if addr_type != 'status':
+                print_info(f"{addr_type.upper()}: {addr}")
+
+    # Display OS information
+    if results['os']:
+        print_header("💻 OPERATING SYSTEM")
+        print_info(f"OS: {results['os'].get('name', 'unknown')}")
+        print_info(f"Accuracy: {results['os'].get('accuracy', 'unknown')}%")
+        print_info(f"OS Details: {results['os'].get('line', 'unknown')}")
+
+    # Display open ports and services
+    if results['ports']:
+        print_header("🔍 OPEN PORTS & SERVICES")
+        for port in results['ports']:
+            if port['state'] == 'open':
+                service = port['service']
+                print_info(f"Port {port['port']}/{port['protocol']}:")
+                print_info(f"  Service: {service['name']}")
+                if service['product']:
+                    print_info(f"  Product: {service['product']}")
+                if service['version']:
+                    print_info(f"  Version: {service['version']}")
+                if service['extrainfo']:
+                    print_info(f"  Extra Info: {service['extrainfo']}")
+
+                # Display script results
+                if port.get('scripts'):
+                    print_info("  Script Results:")
+                    for script in port['scripts']:
+                        print_info(f"    {script['id']}:")
+                        for line in script['output'].split('\n'):
+                            if line.strip():
+                                print_info(f"      {line.strip()}")
+
+    # Display vulnerabilities
+    if results['vulnerabilities']:
+        print_header("⚠️ VULNERABILITIES")
+        for vuln in results['vulnerabilities']:
+            print_warning(f"CVE: {vuln['cve']}")
+            print_warning(f"CVSS Score: {vuln['score']}")
+            print_warning(f"Summary: {vuln['summary']}")
+            print()  # Empty line for readability
+
+
+def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
+    """Generate a professional PDF report from scan results."""
+    doc = SimpleDocTemplate(filename, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        alignment=1  # Center alignment
+    )
+
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        spaceAfter=12,
+        textColor=colors.HexColor('#2C3E50')
+    )
+
+    # Title
+    story.append(Paragraph("Nmap Scan Report", title_style))
+    story.append(Paragraph(
+        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+
+    # Host Information
+    story.append(Paragraph("Host Information", heading_style))
+    host_data = [
+        ["Status", results['host'].get('status', 'unknown')],
+        ["IP Address", results['host'].get('ipv4', 'unknown')],
+        ["MAC Address", results['host'].get('mac', 'unknown')]
+    ]
+    host_table = Table(host_data, colWidths=[2*inch, 4*inch])
+    host_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(host_table)
+    story.append(Spacer(1, 20))
+
+    # Operating System
+    if results['os']:
+        story.append(Paragraph("Operating System", heading_style))
+        os_data = [
+            ["OS Name", results['os'].get('name', 'unknown')],
+            ["Accuracy", f"{results['os'].get('accuracy', 'unknown')}%"],
+            ["Details", results['os'].get('line', 'unknown')]
+        ]
+        os_table = Table(os_data, colWidths=[2*inch, 4*inch])
+        os_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(os_table)
+        story.append(Spacer(1, 20))
+
+    # Open Ports and Services
+    if results['ports']:
+        story.append(Paragraph("Open Ports and Services", heading_style))
+        ports_data = [["Port", "Protocol", "Service", "Version", "Extra Info"]]
+        for port in results['ports']:
+            if port['state'] == 'open':
+                service = port['service']
+                ports_data.append([
+                    port['port'],
+                    port['protocol'],
+                    service['name'],
+                    service['version'],
+                    service['extrainfo']
+                ])
+
+        ports_table = Table(ports_data, colWidths=[
+                            0.8*inch, 0.8*inch, 1.2*inch, 1.2*inch, 2*inch])
+        ports_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E74C3C')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(ports_table)
+        story.append(Spacer(1, 20))
+
+        # Script Results
+        story.append(Paragraph("Script Results", heading_style))
+        for port in results['ports']:
+            if port.get('scripts'):
+                story.append(
+                    Paragraph(f"Port {port['port']}/{port['protocol']}", styles['Heading3']))
+                for script in port['scripts']:
+                    story.append(
+                        Paragraph(f"Script: {script['id']}", styles['Heading4']))
+                    story.append(Paragraph(script['output'], styles['Normal']))
+                    story.append(Spacer(1, 10))
+
+    # Vulnerabilities
+    if results['vulnerabilities']:
+        story.append(Paragraph("Vulnerabilities", heading_style))
+        vuln_data = [["CVE", "CVSS Score", "Summary"]]
+        for vuln in results['vulnerabilities']:
+            vuln_data.append([
+                vuln['cve'],
+                vuln['score'],
+                vuln['summary']
+            ])
+
+        vuln_table = Table(vuln_data, colWidths=[1.5*inch, 1*inch, 3.5*inch])
+        vuln_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F39C12')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(vuln_table)
+
+    # Build the PDF
+    doc.build(story)
+    return filename
+
+
 def main():
     """Main function to orchestrate the scan process."""
     print_header("🚀 NMAP SCAN SCRIPT")
@@ -491,19 +770,19 @@ def main():
             if os.name == 'nt':
                 tcp_command = [
                     "nmap", "-sV", "-O", "-sC", "-T4", "-Pn",
-                    "--script=vulners,http-enum,smb-enum-shares,ftp-anon",
+                    "--script=vulners,http-enum,ftp-anon",
                     "--version-all", "--traceroute",
                     "--stats-every", "5s",
-                    "-oA", "nmap-tcp-comprehensive",
+                    "-oX", "nmap-tcp-comprehensive.xml",
                     "-p", open_ports, target
                 ]
             else:
                 tcp_command = [
                     "sudo", "nmap", "-sV", "-O", "-sC", "-T4", "-Pn",
-                    "--script=vulners,http-enum,smb-enum-shares,ftp-anon",
+                    "--script=vulners,http-enum,ftp-anon",
                     "--version-all", "--traceroute",
                     "--stats-every", "5s",
-                    "-oA", "nmap-tcp-comprehensive",
+                    "-oX", "nmap-tcp-comprehensive.xml",
                     "-p", open_ports, target
                 ]
             state.phase_completed = "comprehensive_scan_tcp"
@@ -512,8 +791,15 @@ def main():
                 print_warning(
                     "TCP comprehensive scan was not completed successfully")
             else:
-                print_success(
-                    "TCP comprehensive scan results saved in nmap-tcp-comprehensive.* files")
+                print_success("TCP comprehensive scan completed successfully")
+                # Parse and display TCP results
+                tcp_results = parse_comprehensive_scan(
+                    "nmap-tcp-comprehensive.xml")
+                display_scan_results(tcp_results)
+                # Generate PDF report
+                pdf_file = generate_pdf_report(
+                    tcp_results, f"nmap-tcp-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+                print_success(f"TCP scan report generated: {pdf_file}")
 
         # Run comprehensive scan for UDP ports
         if scan_udp and open_udp_ports and (not state.phase_completed or
@@ -526,7 +812,7 @@ def main():
                     "--script=dns-nsid,ntp-monlist,snmp-info,dhcp-discover,tftp-enum",
                     "--version-all",
                     "--stats-every", "5s",
-                    "-oA", "nmap-udp-comprehensive",
+                    "-oX", "nmap-udp-comprehensive.xml",
                     "-p", open_udp_ports, target
                 ]
             else:
@@ -535,7 +821,7 @@ def main():
                     "--script=dns-nsid,ntp-monlist,snmp-info,dhcp-discover,tftp-enum",
                     "--version-all",
                     "--stats-every", "5s",
-                    "-oA", "nmap-udp-comprehensive",
+                    "-oX", "nmap-udp-comprehensive.xml",
                     "-p", open_udp_ports, target
                 ]
             state.phase_completed = "comprehensive_scan_udp"
@@ -544,8 +830,15 @@ def main():
                 print_warning(
                     "UDP comprehensive scan was not completed successfully")
             else:
-                print_success(
-                    "UDP comprehensive scan results saved in nmap-udp-comprehensive.* files")
+                print_success("UDP comprehensive scan completed successfully")
+                # Parse and display UDP results
+                udp_results = parse_comprehensive_scan(
+                    "nmap-udp-comprehensive.xml")
+                display_scan_results(udp_results)
+                # Generate PDF report
+                pdf_file = generate_pdf_report(
+                    udp_results, f"nmap-udp-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+                print_success(f"UDP scan report generated: {pdf_file}")
 
         # Only mark as complete if all requested scans were successful
         if (not scan_tcp or tcp_success) and (not scan_udp or udp_success):
@@ -558,9 +851,11 @@ def main():
     print_success("All scan phases completed successfully!")
     print_info("Results saved in the following files:")
     if scan_tcp and open_ports:
-        print_info("- TCP comprehensive scan: nmap-tcp-comprehensive.*")
+        print_info("- TCP comprehensive scan: nmap-tcp-comprehensive.xml")
+        print_info("- TCP scan report: nmap-tcp-report-*.pdf")
     if scan_udp and open_udp_ports:
-        print_info("- UDP comprehensive scan: nmap-udp-comprehensive.*")
+        print_info("- UDP comprehensive scan: nmap-udp-comprehensive.xml")
+        print_info("- UDP scan report: nmap-udp-report-*.pdf")
     clear_state()
 
 

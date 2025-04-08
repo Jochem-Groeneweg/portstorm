@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Tue Apr  8 17:13:15 2025 as: nmap -p- -&#45;open -T4 -Pn -&#45;stats-every 5s -oX nmap-tcp-ports.xml 192.168.0.5 -->
+<nmaprun scanner="nmap" args="nmap -p- -&#45;open -T4 -Pn -&#45;stats-every 5s -oX nmap-tcp-ports.xml 192.168.0.5" start="1744125195" startstr="Tue Apr  8 17:13:15 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="65535" services="1-65535"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1744125195" endtime="1744125198"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.0.5" addrtype="ipv4"/>
+<hostnames>
+<hostname name="host.docker.internal" type="PTR"/>
+</hostnames>
+<ports><extraports state="closed" count="65512">
+<extrareasons reason="reset" count="65512" proto="tcp" ports="1-79,81-134,136,138,140-442,444,446-622,624-2178,2180-3305,3307-5039,5041-5356,5358-7679,7681-7998,8001-8079,8081-15199,15201-16991,16993-49663,49667-49668,49670-49671,49673-49675,49677-65535"/>
+</extraports>
+<extraports state="filtered" count="1">
+<extrareasons reason="no-response" count="1" proto="tcp" ports="137"/>
+</extraports>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="http" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="netbios-ssn" method="table" conf="3"/></port>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="https" method="table" conf="3"/></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="623"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="oob-ws-http" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2179"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="vmrdp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="3306"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="mysql" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5040"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="5357"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="wsdapi" method="table" conf="3"/></port>
+<port protocol="tcp" portid="7680"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="pando-pub" method="table" conf="3"/></port>
+<port protocol="tcp" portid="7999"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="irdmi2" method="table" conf="3"/></port>
+<port protocol="tcp" portid="8000"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="http-alt" method="table" conf="3"/></port>
+<port protocol="tcp" portid="8080"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="http-proxy" method="table" conf="3"/></port>
+<port protocol="tcp" portid="15200"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="16992"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="amt-soap-http" method="table" conf="3"/></port>
+<port protocol="tcp" portid="49664"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="49665"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="49666"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="49669"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="49672"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+<port protocol="tcp" portid="49676"><state state="open" reason="syn-ack" reason_ttl="128"/></port>
+</ports>
+<times srtt="56" rttvar="110" to="100000"/>
+</host>
+<runstats><finished time="1744125198" timestr="Tue Apr  8 17:13:18 2025" summary="Nmap done at Tue Apr  8 17:13:18 2025; 1 IP address (1 host up) scanned in 2.82 seconds" elapsed="2.82" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
