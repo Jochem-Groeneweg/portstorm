@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Tue Apr  8 08:28:03 2025 as: nmap -A -sV -O -sC -T4 -Pn -&#45;script=vuln,http-enum,smb-enum-shares,dns-zone-transfer -&#45;script-args=vulns.showall -&#45;version-all -&#45;traceroute -oA nmap-tcp-comprehensive -p 21,22,80,443,8443,8880 87.66.5.234 -->
+<nmaprun scanner="nmap" args="nmap -A -sV -O -sC -T4 -Pn -&#45;script=vuln,http-enum,smb-enum-shares,dns-zone-transfer -&#45;script-args=vulns.showall -&#45;version-all -&#45;traceroute -oA nmap-tcp-comprehensive -p 21,22,80,443,8443,8880 87.66.5.234" start="1744093683" startstr="Tue Apr  8 08:28:03 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="6" services="21-22,80,443,8443,8880"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<prescript><script id="broadcast-avahi-dos" output="&#xa;  Discovered hosts:&#xa;    224.0.0.251&#xa;  After NULL UDP avahi packet DoS (CVE-2011-1002).&#xa;  Hosts are all up (not vulnerable).&#xa;"/></prescript><runstats><finished time="1744093718" timestr="Tue Apr  8 08:28:38 2025" summary="Nmap done at Tue Apr  8 08:28:38 2025; 1 IP address (0 hosts up) scanned in 35.65 seconds" elapsed="35.65" exit="success"/><hosts up="0" down="1" total="1"/>
+</runstats>
+</nmaprun>

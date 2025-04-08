@@ -29,10 +29,18 @@ class ScanState:
     def __init__(self):
         self.target: str = ""
         self.open_ports: List[str] = []
+        self.open_udp_ports: List[str] = []  # New field for UDP ports
         # List of (start_port, end_port) tuples
         self.scanned_ports: List[Tuple[int, int]] = []
+        # New field for UDP port ranges
+        self.scanned_udp_ports: List[Tuple[int, int]] = []
         self.phase_completed: str = ""
         self.scan_type: str = ""
+        self.scan_mode: str = "stealth"  # New field: stealth or aggressive
+        self.scan_udp: bool = False  # New field: whether to scan UDP ports
+        self.scan_timing: str = "normal"  # New field: normal, slow, or fast
+        self.use_evasion: bool = False  # New field: whether to use evasion techniques
+        self.cloud_aware: bool = False  # New field: whether to use cloud-aware scanning
         self.timestamp: str = ""
         self.scan_command: List[str] = []
         self.scan_start_time: float = 0
@@ -45,9 +53,16 @@ class ScanState:
         return {
             "target": self.target,
             "open_ports": self.open_ports,
+            "open_udp_ports": self.open_udp_ports,
             "scanned_ports": self.scanned_ports,
+            "scanned_udp_ports": self.scanned_udp_ports,
             "phase_completed": self.phase_completed,
             "scan_type": self.scan_type,
+            "scan_mode": self.scan_mode,
+            "scan_udp": self.scan_udp,
+            "scan_timing": self.scan_timing,
+            "use_evasion": self.use_evasion,
+            "cloud_aware": self.cloud_aware,
             "timestamp": self.timestamp,
             "scan_command": self.scan_command,
             "scan_start_time": self.scan_start_time,
@@ -62,9 +77,16 @@ class ScanState:
         state = cls()
         state.target = data.get("target", "")
         state.open_ports = data.get("open_ports", [])
+        state.open_udp_ports = data.get("open_udp_ports", [])
         state.scanned_ports = data.get("scanned_ports", [])
+        state.scanned_udp_ports = data.get("scanned_udp_ports", [])
         state.phase_completed = data.get("phase_completed", "")
         state.scan_type = data.get("scan_type", "")
+        state.scan_mode = data.get("scan_mode", "stealth")
+        state.scan_udp = data.get("scan_udp", False)
+        state.scan_timing = data.get("scan_timing", "normal")
+        state.use_evasion = data.get("use_evasion", False)
+        state.cloud_aware = data.get("cloud_aware", False)
         state.timestamp = data.get("timestamp", "")
         state.scan_command = data.get("scan_command", [])
         state.scan_start_time = data.get("scan_start_time", 0)
@@ -179,26 +201,42 @@ def run_nmap_command(command: List[str], state: ScanState) -> Tuple[bool, str]:
         )
 
         output = []
-        last_progress_update = time.time()
+        last_progress = 0
+        current_task = "Initializing scan..."
+
+        # Clear the current line
+        print("\033[K", end="\r")
 
         while True:
             line = process.stdout.readline()
             if not line and process.poll() is not None:
                 break
             if line:
-                print(line.strip())
                 output.append(line)
 
-                # Update progress every 5 seconds
-                current_time = time.time()
-                if current_time - last_progress_update >= 5:
-                    # Try to extract progress from Nmap output
-                    progress_match = re.search(r'(\d+\.\d+)% done', line)
-                    if progress_match:
-                        progress = float(progress_match.group(1))
-                        state.progress[state.phase_completed] = progress
-                        save_state(state)
-                        last_progress_update = current_time
+                # Extract progress and task information
+                progress_match = re.search(r'About (\d+\.\d+)% done', line)
+                task_match = re.search(r'undergoing (.*?) Scan', line)
+
+                if progress_match:
+                    progress = float(progress_match.group(1))
+                    if progress != last_progress:
+                        last_progress = progress
+                        # Clear the current line and show progress
+                        print("\033[K", end="\r")
+                        print(
+                            f"{COLORS['CYAN']}Progress: {progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
+
+                if task_match:
+                    current_task = task_match.group(1)
+                    # Clear the current line and show new task
+                    print("\033[K", end="\r")
+                    print(
+                        f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
+
+        # Clear the final progress line and print completion
+        print("\033[K", end="\r")
+        print_success("Scan completed successfully!")
 
         state.scan_end_time = time.time()
         return True, ''.join(output)
@@ -214,19 +252,79 @@ def run_nmap_command(command: List[str], state: ScanState) -> Tuple[bool, str]:
         return False, "Interrupted by user"
 
 
+def get_scan_timing_options(state: ScanState) -> List[str]:
+    """Get Nmap timing options based on scan mode and timing settings."""
+    options = []
+
+    if state.scan_timing == "slow":
+        options.extend(["--scan-delay", "5s", "--max-rtt-timeout", "2s"])
+    elif state.scan_timing == "fast":
+        options.extend(["-T4"])
+    else:  # normal
+        options.extend(["-T3"])
+
+    if state.use_evasion:
+        options.extend(["-f", "--mtu", "24", "--data-length", "24"])
+
+    return options
+
+
+def get_common_ports() -> List[str]:
+    """Return a list of commonly used ports for targeted scanning."""
+    return [
+        "21", "22", "23", "25", "53", "80", "110", "143", "443", "445",
+        "993", "995", "1723", "3306", "3389", "5900", "8080"
+    ]
+
+
+def scan_udp_ports(target: str, state: ScanState) -> Optional[str]:
+    """Scan UDP ports and return the open ports."""
+    print_header("🔍 UDP PORT SCAN PHASE")
+    print_info("Scanning UDP ports...")
+
+    resume_file = "nmap-udp-ports.xml"
+    if os.path.exists(resume_file) and state.scanned_udp_ports:
+        print_info("Resuming previous UDP port scan...")
+        command = ["sudo", "nmap", "--resume", resume_file, target]
+    else:
+        command = ["sudo", "nmap", "-sU", "-p-", "--open", "-Pn", "-T4"]
+        command.extend(["--stats-every", "60s", "-oX", resume_file, target])
+
+    state.phase_completed = "udp_port_scan"
+    success, output = run_nmap_command(command, state)
+
+    if not success:
+        if output == "Interrupted by user":
+            save_state(state)
+        return None
+
+    # Parse results from XML
+    open_ports, scanned_ranges = parse_xml_progress(resume_file)
+    state.open_udp_ports = open_ports
+    state.scanned_udp_ports = scanned_ranges
+
+    if open_ports:
+        print_success(f"Open UDP ports found: {', '.join(open_ports)}")
+        save_state(state)
+        return ",".join(open_ports)
+    else:
+        print_warning("No open UDP ports found.")
+        return None
+
+
 def get_open_ports(target: str, state: ScanState) -> Optional[str]:
     """Scan ports for open status and return the open ports."""
     print_header("🔍 PORT SCAN PHASE")
     print_info("Scanning ports for open status...")
 
     # Check if we can resume from previous scan
-    resume_file = "nmap-open-ports.xml"
+    resume_file = "nmap-tcp-ports.xml"
     if os.path.exists(resume_file) and state.scanned_ports:
         print_info("Resuming previous port scan...")
         command = ["sudo", "nmap", "--resume", resume_file, target]
     else:
-        command = ["sudo", "nmap", "-p-", "--open", "-T4",
-                   "-Pn", "--stats-every", "15s", "-oX", resume_file, target]
+        command = ["sudo", "nmap", "-p-", "--open", "-T4", "-Pn",
+                   "--stats-every", "60s", "-oX", resume_file, target]
 
     state.phase_completed = "port_scan"
     success, output = run_nmap_command(command, state)
@@ -250,6 +348,65 @@ def get_open_ports(target: str, state: ScanState) -> Optional[str]:
         return None
 
 
+def scan_common_ports(target: str, state: ScanState) -> Optional[str]:
+    """Scan commonly used ports first for quick results."""
+    print_header("🔍 COMMON PORT SCAN PHASE")
+    print_info("Scanning commonly used ports...")
+
+    common_ports = get_common_ports()
+    resume_file = "nmap-common-ports.xml"
+
+    if state.scan_mode == "aggressive":
+        command = ["sudo", "nmap", "-A", "-p",
+                   ",".join(common_ports), "-Pn", "-T4"]
+    else:
+        command = ["sudo", "nmap", "-sS", "-p",
+                   ",".join(common_ports), "-Pn", "-T4"]
+
+    command.extend(get_scan_timing_options(state))
+    command.extend(["--stats-every", "60s", "-oX", resume_file, target])
+
+    state.phase_completed = "common_port_scan"
+    success, output = run_nmap_command(command, state)
+
+    if not success:
+        if output == "Interrupted by user":
+            save_state(state)
+        return None
+
+    # Parse results from XML
+    open_ports, _ = parse_xml_progress(resume_file)
+
+    if open_ports:
+        print_success(f"Open common ports found: {', '.join(open_ports)}")
+        return ",".join(open_ports)
+    else:
+        print_warning("No open common ports found.")
+        return None
+
+
+def grab_banners(target: str, ports: str, state: ScanState) -> bool:
+    """Perform banner grabbing on specified ports."""
+    print_header("🔍 BANNER GRABBING PHASE")
+    print_info("Grabbing service banners...")
+
+    command = ["sudo", "nmap", "-sV", "--version-intensity",
+               "0", "-p", ports, "-Pn", "-T4"]
+    command.extend(get_scan_timing_options(state))
+    command.extend(["-oX", "nmap-banners.xml", target])
+
+    state.phase_completed = "banner_grab"
+    success, output = run_nmap_command(command, state)
+
+    if not success:
+        if output == "Interrupted by user":
+            save_state(state)
+        return False
+
+    print_success("Banner grabbing complete")
+    return True
+
+
 def scan_open_ports(target: str, open_ports: str, state: ScanState) -> bool:
     """Run a detailed scan on the open ports."""
     if not open_ports:
@@ -260,9 +417,9 @@ def scan_open_ports(target: str, open_ports: str, state: ScanState) -> bool:
     print_info(
         f"Scanning open ports ({open_ports}) for services, OS, and vulnerabilities...")
 
-    command = ["sudo", "nmap", "-sV", "-O", "-sC",
+    command = ["sudo", "nmap", "-sV", "-O", "-sC", "-Pn", "-T4",
                "--script=vuln,http-enum,smb-enum-shares,dns-zone-transfer",
-               "-p", open_ports, "--stats-every", "15s",
+               "-p", open_ports, "--stats-every", "60s",
                "-oA", "nmap-detailed-scan", target]
 
     state.phase_completed = "detailed_scan"
@@ -281,21 +438,18 @@ def scan_open_ports(target: str, open_ports: str, state: ScanState) -> bool:
 
 def is_resumable_state(state: ScanState) -> bool:
     """Check if the state is in a resumable condition."""
-    if not state:
+    if not state or not state.target:
         return False
 
-    valid_phases = ["port_scan", "detailed_scan"]
-    if state.phase_completed not in valid_phases:
-        return False
-
-    # For port_scan phase, we can resume if we have scanned ports
-    if state.phase_completed == "port_scan" and state.scanned_ports:
-        return True
-
-    # For detailed_scan phase, we need open ports
-    if state.phase_completed == "detailed_scan" and state.open_ports:
-        return True
-
+    # Check if we have the necessary files for the current phase
+    if state.phase_completed == "port_scan":
+        return os.path.exists("nmap-tcp-ports.xml")
+    elif state.phase_completed == "udp_port_scan":
+        return os.path.exists("nmap-udp-ports.xml")
+    elif state.phase_completed in ["comprehensive_scan_tcp", "comprehensive_scan_udp"]:
+        # For comprehensive scans, we can resume if we have the port scan results
+        return (os.path.exists("nmap-tcp-ports.xml") or
+                os.path.exists("nmap-udp-ports.xml"))
     return False
 
 
@@ -311,7 +465,10 @@ def main():
         print_info(f"Target: {state.target}")
         print_info(f"Last phase: {state.phase_completed}")
         if state.open_ports:
-            print_info(f"Open ports found: {', '.join(state.open_ports)}")
+            print_info(f"Open TCP ports found: {', '.join(state.open_ports)}")
+        if state.open_udp_ports:
+            print_info(
+                f"Open UDP ports found: {', '.join(state.open_udp_ports)}")
         if state.scanned_ports:
             print_info(f"Scanned port ranges: {state.scanned_ports}")
         print_info(
@@ -323,14 +480,6 @@ def main():
                 f"{COLORS['CYAN']}Do you want to resume the previous scan? (y/n): {COLORS['END']}").strip().lower()
             if resume == 'y':
                 target = state.target
-                if state.phase_completed == "port_scan":
-                    print_info("Resuming port scan...")
-                    open_ports = get_open_ports(target, state)
-                    if open_ports:
-                        scan_open_ports(target, open_ports, state)
-                elif state.phase_completed == "detailed_scan":
-                    print_info("Resuming detailed scan...")
-                    scan_open_ports(target, ",".join(state.open_ports), state)
             else:
                 clear_state()
                 target = input(
@@ -344,9 +493,9 @@ def main():
     else:
         print_info(
             "This script will perform a comprehensive network scan in two phases:")
-        print_info("1. Initial port scan to identify open ports")
-        print_info(
-            "2. Detailed scan of open ports for services, OS, and vulnerabilities")
+        print_info("1. Full port scan to identify all open ports")
+        print_info("2. Detailed service and vulnerability scan on open ports")
+
         target = input(
             f"{COLORS['CYAN']}Enter target IP address (e.g., 192.168.1.1): {COLORS['END']}").strip()
 
@@ -354,21 +503,109 @@ def main():
         print_error("Invalid target. Exiting.")
         return
 
+    # If target changed, clear the state
+    if state.target and state.target != target:
+        print_warning("Target changed. Starting new scan.")
+        clear_state()
+        state = ScanState()
+
+    # Select scan type
+    print_header("🔍 SCAN TYPE SELECTION")
+    print_info("Choose which type of scan to perform:")
+    print_info("1. TCP ports only")
+    print_info("2. UDP ports only")
+    print_info("3. Both TCP and UDP ports")
+
+    scan_type = input(
+        f"{COLORS['CYAN']}Enter your choice (1-3) [3]: {COLORS['END']}").strip()
+
+    if scan_type not in ["1", "2", "3"]:
+        scan_type = "3"  # Default to both if invalid input
+
+    scan_tcp = scan_type in ["1", "3"]
+    scan_udp = scan_type in ["2", "3"]
+
     state.target = target
     save_state(state)
 
-    # Step 1: Scan open ports
-    open_ports = get_open_ports(target, state)
-    if open_ports is None:
-        return
+    # Step 1: Full TCP port scan
+    if scan_tcp and (not state.phase_completed or state.phase_completed == "port_scan"):
+        print_header("🔍 FULL TCP PORT SCAN")
+        print_info("Scanning all 65535 TCP ports...")
+        open_ports = get_open_ports(target, state)
+        if not open_ports:
+            print_warning("No open TCP ports found.")
+    else:
+        open_ports = ",".join(state.open_ports) if state.open_ports else None
 
-    # Step 2: Scan the identified open ports for services and OS
-    if not scan_open_ports(target, open_ports, state):
-        return
+    # Step 2: Full UDP port scan
+    if scan_udp and (not state.phase_completed or state.phase_completed in ["port_scan", "udp_port_scan"]):
+        print_header("🔍 FULL UDP PORT SCAN")
+        print_info("Scanning all 65535 UDP ports...")
+        open_udp_ports = scan_udp_ports(target, state)
+        if not open_udp_ports:
+            print_warning("No open UDP ports found.")
+    else:
+        open_udp_ports = ",".join(
+            state.open_udp_ports) if state.open_udp_ports else None
+
+    # Step 3: Comprehensive scan on all open ports
+    if (scan_tcp and open_ports) or (scan_udp and open_udp_ports):
+        print_header("🔬 COMPREHENSIVE SCAN")
+        print_info(
+            "Performing detailed service and vulnerability scan on open ports...")
+
+        # Run comprehensive scan for TCP ports
+        if scan_tcp and open_ports and (not state.phase_completed or
+                                        state.phase_completed in ["port_scan", "udp_port_scan", "comprehensive_scan_tcp"]):
+            print_info("Scanning TCP ports...")
+            tcp_command = [
+                "sudo", "nmap", "-A", "-sV", "-O", "-sC", "-T4", "-Pn",
+                "--script=vuln,http-enum,smb-enum-shares,dns-zone-transfer",
+                "--script-args=vulns.showall",
+                "--version-all", "--traceroute",
+                "-oA", "nmap-tcp-comprehensive",
+                "-p", open_ports, target
+            ]
+            state.phase_completed = "comprehensive_scan_tcp"
+            success, output = run_nmap_command(tcp_command, state)
+            if not success:
+                print_warning(
+                    "TCP comprehensive scan was not completed successfully")
+            else:
+                print_success(
+                    "TCP comprehensive scan results saved in nmap-tcp-comprehensive.* files")
+
+        # Run comprehensive scan for UDP ports
+        if scan_udp and open_udp_ports and (not state.phase_completed or
+                                            state.phase_completed in ["port_scan", "udp_port_scan", "comprehensive_scan_udp"]):
+            print_info("Scanning UDP ports...")
+            udp_command = [
+                "sudo", "nmap", "-sU", "-sV", "-O", "-sC", "-T4", "-Pn",
+                "--script=vuln",
+                "--script-args=vulns.showall",
+                "--version-all",
+                "-oA", "nmap-udp-comprehensive",
+                "-p", open_udp_ports, target
+            ]
+            state.phase_completed = "comprehensive_scan_udp"
+            success, output = run_nmap_command(udp_command, state)
+            if not success:
+                print_warning(
+                    "UDP comprehensive scan was not completed successfully")
+            else:
+                print_success(
+                    "UDP comprehensive scan results saved in nmap-udp-comprehensive.* files")
+    else:
+        print_warning("No open ports found to perform comprehensive scan")
 
     print_header("✨ SCAN COMPLETE")
     print_success("All scan phases completed successfully!")
-    print_info("Check the nmap-*.xml files for detailed results.")
+    print_info("Results saved in the following files:")
+    if scan_tcp and open_ports:
+        print_info("- TCP comprehensive scan: nmap-tcp-comprehensive.*")
+    if scan_udp and open_udp_ports:
+        print_info("- UDP comprehensive scan: nmap-udp-comprehensive.*")
     clear_state()
 
 
