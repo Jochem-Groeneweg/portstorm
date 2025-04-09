@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed Apr  9 15:57:52 2025 as: nmap -v -sV -O -sC -T4 -Pn -&#45;script=vulners,http-enum,ftp-anon -&#45;version-all -&#45;traceroute -&#45;stats-every 5s -oX nmap-tcp-comprehensive-192.168.0.18.xml -p 7680 192.168.0.18 -->
+<nmaprun scanner="nmap" args="nmap -v -sV -O -sC -T4 -Pn -&#45;script=vulners,http-enum,ftp-anon -&#45;version-all -&#45;traceroute -&#45;stats-every 5s -oX nmap-tcp-comprehensive-192.168.0.18.xml -p 7680 192.168.0.18" start="1744207072" startstr="Wed Apr  9 15:57:52 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="7680"/>
+<verbose level="1"/>
+<debugging level="0"/>
+<taskbegin task="NSE" time="1744207072"/>
+<taskend task="NSE" time="1744207072"/>
+<taskbegin task="NSE" time="1744207072"/>
+<taskend task="NSE" time="1744207072"/>
+<taskbegin task="ARP Ping Scan" time="1744207072"/>
+<hosthint><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.168.0.18" addrtype="ipv4"/>
+<address addr="A8:41:F4:89:30:5C" addrtype="mac" vendor="AzureWave Technology"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<taskend task="ARP Ping Scan" time="1744207072" extrainfo="1 total hosts"/>
+<taskbegin task="Parallel DNS resolution of 1 host." time="1744207072"/>
+<taskend task="Parallel DNS resolution of 1 host." time="1744207072"/>
+<taskbegin task="SYN Stealth Scan" time="1744207072"/>
+<taskend task="SYN Stealth Scan" time="1744207073" extrainfo="1 total ports"/>
+<taskbegin task="Service scan" time="1744207073"/>
+<taskprogress task="Service scan" time="1744207079" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207084" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207089" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207094" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207099" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207104" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207109" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207114" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207120" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207125" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207130" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207135" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207140" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207145" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207150" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207156" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207161" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207166" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207171" percent="0.00"/>
+<taskprogress task="Service scan" time="1744207176" percent="100.00" remaining="0" etc="1744207176"/>
+<taskend task="Service scan" time="1744207176" extrainfo="1 service on 1 host"/>
+<taskbegin task="NSE" time="1744207181"/>
+<taskprogress task="NSE" time="1744207181" percent="0.00"/>
+<taskend task="NSE" time="1744207181"/>
+<taskbegin task="NSE" time="1744207181"/>
+<taskend task="NSE" time="1744207181"/>
+<host starttime="1744207072" endtime="1744207181"><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.168.0.18" addrtype="ipv4"/>
+<address addr="A8:41:F4:89:30:5C" addrtype="mac" vendor="AzureWave Technology"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="7680"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="pando-pub" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="7680"/>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="92" line="75497">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="92"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="88" line="29729">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="88"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="87" line="74394">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="87"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="85" line="82075">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="85"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="85" line="74770">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="85"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="785787" lastboot="Mon Mar 31 13:43:14 2025"/>
+<distance value="1"/>
+<tcpsequence index="261" difficulty="Good luck!" values="8D6624BF,9E9BE86B,39475A89,7578D639,DBCF0DB1,FEDCBCBE"/>
+<ipidsequence class="Incremental" values="6DE5,6DE6,6DE7,6DE9,6DEA,6DEB"/>
+<tcptssequence class="1000HZ" values="2ED622B1,2ED622B5,2ED6233C,2ED623E6,2ED623E6,2ED62448"/>
+<trace>
+<hop ttl="1" ipaddr="192.168.0.18" rtt="92.36"/>
+</trace>
+<times srtt="92357" rttvar="58818" to="327629"/>
+</host>
+<taskbegin task="NSE" time="1744207181"/>
+<taskend task="NSE" time="1744207181"/>
+<taskbegin task="NSE" time="1744207181"/>
+<taskend task="NSE" time="1744207181"/>
+<runstats><finished time="1744207181" timestr="Wed Apr  9 15:59:41 2025" summary="Nmap done at Wed Apr  9 15:59:41 2025; 1 IP address (1 host up) scanned in 109.19 seconds" elapsed="109.19" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

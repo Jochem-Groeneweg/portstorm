@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed Apr  9 15:43:59 2025 as: nmap -v -sV -O -sC -T4 -Pn -&#45;script=vulners,http-enum,ftp-anon -&#45;version-all -&#45;traceroute -&#45;stats-every 5s -oX nmap-tcp-comprehensive-192.168.0.1.xml -p 80,443,1900,8082 192.168.0.1 -->
+<nmaprun scanner="nmap" args="nmap -v -sV -O -sC -T4 -Pn -&#45;script=vulners,http-enum,ftp-anon -&#45;version-all -&#45;traceroute -&#45;stats-every 5s -oX nmap-tcp-comprehensive-192.168.0.1.xml -p 80,443,1900,8082 192.168.0.1" start="1744206239" startstr="Wed Apr  9 15:43:59 2025" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="4" services="80,443,1900,8082"/>
+<verbose level="1"/>
+<debugging level="0"/>
+<taskbegin task="NSE" time="1744206240"/>
+<taskend task="NSE" time="1744206240"/>
+<taskbegin task="NSE" time="1744206240"/>
+<taskend task="NSE" time="1744206240"/>
+<taskbegin task="ARP Ping Scan" time="1744206240"/>
+<hosthint><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.168.0.1" addrtype="ipv4"/>
+<address addr="C8:B4:22:BF:94:F2" addrtype="mac" vendor="Askey Computer"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<taskend task="ARP Ping Scan" time="1744206240" extrainfo="1 total hosts"/>
+<taskbegin task="Parallel DNS resolution of 1 host." time="1744206240"/>
+<taskend task="Parallel DNS resolution of 1 host." time="1744206240"/>
+<taskbegin task="SYN Stealth Scan" time="1744206240"/>
+<taskend task="SYN Stealth Scan" time="1744206240" extrainfo="4 total ports"/>
+<taskbegin task="Service scan" time="1744206240"/>
+<taskprogress task="Service scan" time="1744206245" percent="50.00" remaining="6" etc="1744206250"/>
+<taskend task="Service scan" time="1744206246" extrainfo="4 services on 1 host"/>
+<taskbegin task="NSE" time="1744206250"/>
+<taskprogress task="NSE" time="1744206250" percent="0.00"/>
+<taskprogress task="NSE" time="1744206254" percent="98.96" remaining="1" etc="1744206254"/>
+<taskend task="NSE" time="1744206254"/>
+<taskbegin task="NSE" time="1744206254"/>
+<taskend task="NSE" time="1744206255"/>
+<host starttime="1744206240" endtime="1744206255"><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="192.168.0.1" addrtype="ipv4"/>
+<address addr="C8:B4:22:BF:94:F2" addrtype="mac" vendor="Askey Computer"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" tunnel="ssl" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="1900"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Cisco DPC3828S WiFi cable modem" devicetype="WAP" method="probed" conf="10"><cpe>cpe:/h:cisco:dpc3828s</cpe></service></port>
+<port protocol="tcp" portid="8082"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="http" product="Mongoose httpd" method="probed" conf="10"><cpe>cpe:/a:cesanta:mongoose</cpe></service></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="1900"/>
+<portused state="closed" proto="udp" portid="34309"/>
+<osmatch name="HP ProCurve 1810G, ZyXEL GS1910, or FibroLAN switch (eCos 3.0)" accuracy="95" line="25491">
+<osclass type="switch" vendor="eCosCentric" osfamily="eCos" osgen="3.X" accuracy="95"><cpe>cpe:/o:ecoscentric:ecos:3.0</cpe></osclass>
+<osclass type="switch" vendor="HP" osfamily="embedded" accuracy="95"><cpe>cpe:/h:hp:procurve_1810g</cpe></osclass>
+<osclass type="switch" vendor="ZyXEL" osfamily="embedded" accuracy="95"><cpe>cpe:/h:zyxel:gs1910</cpe></osclass>
+</osmatch>
+<osmatch name="Motorola SURFboard 5101 cable modem" accuracy="94" line="92156">
+<osclass type="broadband router" vendor="Motorola" osfamily="embedded" accuracy="94"><cpe>cpe:/h:motorola:surfboard_5101</cpe></osclass>
+</osmatch>
+<osmatch name="HP ProCurve 1810G switch (eCos 3.0)" accuracy="93" line="25469">
+<osclass type="switch" vendor="eCosCentric" osfamily="eCos" osgen="3.X" accuracy="93"><cpe>cpe:/o:ecoscentric:ecos:3.0</cpe></osclass>
+<osclass type="switch" vendor="HP" osfamily="embedded" accuracy="93"><cpe>cpe:/h:hp:procurve_switch_1810g</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD daemon 4.5-RELEASE" accuracy="92" line="29152">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="4.X" accuracy="92"><cpe>cpe:/o:freebsd:freebsd:4</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 4.6.2-RELEASE" accuracy="92" line="29062">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="4.X" accuracy="92"><cpe>cpe:/o:freebsd:freebsd:4.6.2</cpe></osclass>
+</osmatch>
+<osmatch name="FreeNAS 0.686b (FreeBSD 6.2-RELEASE)" accuracy="92" line="31697">
+<osclass type="storage-misc" vendor="FreeNAS" osfamily="FreeNAS" osgen="0.X" accuracy="92"><cpe>cpe:/o:freenas:freenas:0.686b</cpe></osclass>
+<osclass type="storage-misc" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="92"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="DragonFly BSD 1.10.1" accuracy="91" line="24954">
+<osclass type="general purpose" vendor="DragonFly BSD" osfamily="DragonFly BSD" osgen="1.X" accuracy="91"><cpe>cpe:/o:dragonflybsd:dragonfly_bsd:1.10.1</cpe></osclass>
+</osmatch>
+<osmatch name="DragonFly BSD 1.8.0-RELEASE - 1.10.1 (x86)" accuracy="91" line="24973">
+<osclass type="general purpose" vendor="DragonFly BSD" osfamily="DragonFly BSD" osgen="1.X" accuracy="91"><cpe>cpe:/o:dragonflybsd:dragonfly_bsd:1</cpe></osclass>
+</osmatch>
+<osmatch name="VxWorks" accuracy="91" line="112572">
+<osclass type="general purpose" vendor="Wind River" osfamily="VxWorks" accuracy="91"><cpe>cpe:/o:windriver:vxworks</cpe></osclass>
+</osmatch>
+<osmatch name="IronPort C100 email security appliance (AsyncOS 4.7.1)" accuracy="91" line="43992">
+<osclass type="firewall" vendor="IronPort" osfamily="AsyncOS" osgen="4.X" accuracy="91"><cpe>cpe:/o:ironport:asyncos:4.7.1</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="1810465" lastboot="Wed Mar 19 15:49:50 2025"/>
+<distance value="1"/>
+<tcpsequence index="261" difficulty="Good luck!" values="86DE8D2F,8A185A5D,DC010D9A,BFE6CFF0,23C1DC8C,7E4683A7"/>
+<ipidsequence class="Busy server or unknown class" values="7248,7254,7255,7256,7257,7258"/>
+<tcptssequence class="100HZ" values="ACA8A40,ACA8A4B,ACA8A56,ACA8A61,ACA8A6C,ACA8A77"/>
+<trace>
+<hop ttl="1" ipaddr="192.168.0.1" rtt="1.11"/>
+</trace>
+<times srtt="1112" rttvar="212" to="100000"/>
+</host>
+<taskbegin task="NSE" time="1744206255"/>
+<taskend task="NSE" time="1744206255"/>
+<taskbegin task="NSE" time="1744206255"/>
+<taskend task="NSE" time="1744206255"/>
+<runstats><finished time="1744206255" timestr="Wed Apr  9 15:44:15 2025" summary="Nmap done at Wed Apr  9 15:44:15 2025; 1 IP address (1 host up) scanned in 15.68 seconds" elapsed="15.68" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
