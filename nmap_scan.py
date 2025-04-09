@@ -12,6 +12,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+import html
 
 # ANSI color codes
 COLORS = {
@@ -619,7 +620,9 @@ def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
                 for script in port['scripts']:
                     story.append(
                         Paragraph(f"Script: {script['id']}", styles['Heading4']))
-                    story.append(Paragraph(script['output'], styles['Normal']))
+                    # Escape HTML-like tags in script output
+                    escaped_output = html.escape(script['output'])
+                    story.append(Paragraph(escaped_output, styles['Normal']))
                     story.append(Spacer(1, 10))
 
     # Vulnerabilities
