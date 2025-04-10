@@ -14,6 +14,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import html
 
+# Global state variable for error logging
+state = None
+
 # ANSI color codes
 COLORS = {
     'HEADER': '\033[95m',
@@ -57,6 +60,7 @@ class ScanState:
         self.error_count: int = 0
         self.last_error: str = ""
         self.progress: Dict[str, float] = {}  # Phase -> progress percentage
+        self.network_folder: str = ""  # Added for network folder
 
     def to_dict(self) -> dict:
         return {
@@ -79,7 +83,8 @@ class ScanState:
             "scan_end_time": self.scan_end_time,
             "error_count": self.error_count,
             "last_error": self.last_error,
-            "progress": self.progress
+            "progress": self.progress,
+            "network_folder": self.network_folder
         }
 
     @classmethod
@@ -105,6 +110,7 @@ class ScanState:
         state.error_count = data.get("error_count", 0)
         state.last_error = data.get("last_error", "")
         state.progress = data.get("progress", {})
+        state.network_folder = data.get("network_folder", "")
         return state
 
 
@@ -164,7 +170,17 @@ def print_info(text):
 def log_error(error_msg: str):
     """Log an error message to the error log file."""
     timestamp = datetime.now().isoformat()
-    with open(ERROR_LOG_FILE, 'a') as f:
+    # Use global error log file if we don't have access to state
+    error_log_path = ERROR_LOG_FILE
+    # Try to get network folder from the main ScanState instance
+    try:
+        global state
+        if state and hasattr(state, 'network_folder') and state.network_folder:
+            error_log_path = os.path.join(
+                state.network_folder, "nmap_scan_errors.log")
+    except (NameError, AttributeError):
+        pass
+    with open(error_log_path, 'a') as f:
         f.write(f"[{timestamp}] {error_msg}\n")
 
 
@@ -212,23 +228,19 @@ def parse_xml_progress(xml_file: str) -> Tuple[Dict[str, List[str]], Dict[str, L
         return {}, {}, 0
 
 
-def run_nmap_command(command: List[str], state: ScanState):
-    """Run Nmap command and capture output with progress tracking."""
+def run_nmap_command(command: List[str], state: ScanState, resume_file: str = None, is_comprehensive: bool = False):
+    """Run Nmap command and capture output with real-time progress tracking."""
     try:
-        state.scan_start_time = time.time()
-        state.scan_command = command
-        print_info(
-            f"Starting scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Add verbose flag to the command
-        if "-v" not in command:
-            command.insert(1, "-v")
+        # Only show the starting message for non-comprehensive scans
+        if not is_comprehensive:
+            print_info(
+                f"Starting scan at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Run the command and capture output in real-time
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Combine stderr with stdout
+            stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
             universal_newlines=True
@@ -242,6 +254,7 @@ def run_nmap_command(command: List[str], state: ScanState):
         hosts_up = 0
         total_hosts = 0
         arp_scan_completed = False
+        discovered_hosts = []  # Track discovered hosts
 
         # Clear the current line
         print("\033[K", end="\r")
@@ -262,7 +275,6 @@ def run_nmap_command(command: List[str], state: ScanState):
                 if total_hosts_match:
                     total_hosts = int(total_hosts_match.group(1))
                     arp_scan_completed = True
-                    print_info(f"Found {total_hosts} hosts in network")
 
             # Extract hosts up from DNS resolution line
             if "Initiating Parallel DNS resolution" in line:
@@ -271,10 +283,25 @@ def run_nmap_command(command: List[str], state: ScanState):
                 if hosts_up_match:
                     hosts_up = int(hosts_up_match.group(1))
                     hosts_completed = 0  # Reset completed count when starting new scan
-                    print("\033[K", end="\r")
+                    # Clear the progress line and print ARP scan completion
+                    print("\033[K", end="\r")  # Clear current line
+                    print("\033[F", end="")    # Move up one line
+                    print("\033[K", end="\r")  # Clear that line too
+                    print("\n" + "=" * 80)
                     print(
-                        f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
-                    sys.stdout.flush()  # Force flush the output
+                        f"{COLORS['GREEN']}✅ ARP Scan Complete{COLORS['END']}")
+                    print(f"Found {hosts_up} hosts up in the network")
+                    print("=" * 80)
+                    if discovered_hosts and not is_comprehensive:
+                        print(
+                            f"{COLORS['GREEN']}Discovered Hosts:{COLORS['END']}")
+                        print("-" * 80)
+                        sorted_hosts = sorted(discovered_hosts, key=lambda x: [int(
+                            ip) for ip in x.split("IP: ")[1].split()[0].split('.')])
+                        for host in sorted_hosts:
+                            print(host)
+                        print("=" * 80)
+                    print()  # Add a single newline after the section
 
             # Detect hosts that are up
             if "Host is up" in line or "arp-response" in line:
@@ -282,7 +309,7 @@ def run_nmap_command(command: List[str], state: ScanState):
                     hosts_up += 1
                     print("\033[K", end="\r")
                     print(
-                        f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                        f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                     sys.stdout.flush()  # Force flush the output
 
             # Track completed SYN scans
@@ -292,7 +319,7 @@ def run_nmap_command(command: List[str], state: ScanState):
                     hosts_completed = hosts_up
                 print("\033[K", end="\r")
                 print(
-                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                 sys.stdout.flush()  # Force flush the output
 
             # Update progress based on current task
@@ -304,7 +331,7 @@ def run_nmap_command(command: List[str], state: ScanState):
                         last_progress = progress
                         print("\033[K", end="\r")
                         print(
-                            f"{COLORS['CYAN']}Progress: {progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                            f"{COLORS['CYAN']}Progress: {progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                         sys.stdout.flush()  # Force flush the output
 
             # Extract progress and task information
@@ -316,7 +343,7 @@ def run_nmap_command(command: List[str], state: ScanState):
                 hosts_completed += 1
                 print("\033[K", end="\r")
                 print(
-                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                 sys.stdout.flush()  # Force flush the output
 
             if not re.search(r'undergoing (.*?) Scan', line):
@@ -329,7 +356,7 @@ def run_nmap_command(command: List[str], state: ScanState):
                     # Clear the current line and show progress
                     print("\033[K", end="\r")
                     print(
-                        f"{COLORS['CYAN']}Progress: {progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                        f"{COLORS['CYAN']}Progress: {progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                     sys.stdout.flush()  # Force flush the output
 
             if task_match:
@@ -337,14 +364,14 @@ def run_nmap_command(command: List[str], state: ScanState):
                 # Clear the current line and show new task
                 print("\033[K", end="\r")
                 print(
-                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                    f"{COLORS['CYAN']}Progress: {last_progress:.1f}% | Task: {current_task}{COLORS['END']}", end="\r")
                 sys.stdout.flush()  # Force flush the output
 
             # Show initial progress if no progress yet
             if last_progress == 0 and not progress_match and not task_match:
                 print("\033[K", end="\r")
                 print(
-                    f"{COLORS['CYAN']}Progress: 0.0% | Task: {current_task} | Next host: {hosts_completed + 1}/{hosts_up}{COLORS['END']}", end="\r")
+                    f"{COLORS['CYAN']}Progress: 0.0% | Task: {current_task}{COLORS['END']}", end="\r")
                 sys.stdout.flush()  # Force flush the output
 
         # Wait for the process to complete and get the return code
@@ -355,8 +382,9 @@ def run_nmap_command(command: List[str], state: ScanState):
 
         # Check if the process completed successfully
         if return_code == 0:
-            print_success(
-                f"Scan completed successfully! Found {hosts_up} hosts up.")
+            if not resume_file:  # Only show this message for non-comprehensive scans
+                print_success(
+                    f"Scan completed successfully! Found {hosts_up} hosts up.")
             state.scan_end_time = time.time()
             return True, ''.join(output)
         else:
@@ -379,21 +407,25 @@ def run_nmap_command(command: List[str], state: ScanState):
 
 def scan_tcp_ports(target: str, state: ScanState, current_host: int, total_hosts: int) -> Optional[Dict[str, List[str]]]:
     """Scan TCP ports and return the open ports per IP."""
-    print_header(f"🔍 TCP PORT SCAN PHASE (Host {current_host}/{total_hosts})")
+    print_header(f"🔍 TCP PORT SCAN - {target}")
     print_info(f"Scanning TCP ports for {target}")
 
+    # Create host-specific folder
+    host_folder = os.path.join(state.network_folder, target.replace('/', '_'))
+    resume_file = os.path.join(
+        host_folder, f"nmap-tcp-ports-{target.replace('/', '_')}")
+
     # Check if we can resume from previous scan
-    resume_file = f"nmap-tcp-ports-{target.replace('/', '_')}.xml"
-    if os.path.exists(resume_file) and state.scanned_ports.get(target):
+    if os.path.exists(f"{resume_file}.gnmap") and state.scanned_ports.get(target):
         print_info("Resuming previous TCP port scan...")
-        command = ["nmap", "--resume", resume_file, target]
+        command = ["nmap", "-v", "--resume", f"{resume_file}.gnmap", target]
     else:
-        command = ["nmap", "-p-", "--open", "-T4", "-Pn",
-                   "--stats-every", "5s", "-oX", resume_file, target]
+        command = ["nmap", "-v", "-p-", "--open", "-T4", "-Pn",
+                   "--stats-every", "5s", "-oA", resume_file, target]
 
     state.phase_completed = "tcp_port_scan"
     state.current_target = target
-    success, output = run_nmap_command(command, state)
+    success, output = run_nmap_command(command, state, resume_file)
 
     if not success:
         if output == "Interrupted by user":
@@ -404,13 +436,18 @@ def scan_tcp_ports(target: str, state: ScanState, current_host: int, total_hosts
     time.sleep(1)
 
     # Parse results from XML
-    if os.path.exists(resume_file):
-        open_ports, scanned_ranges, hosts_up = parse_xml_progress(resume_file)
+    if os.path.exists(f"{resume_file}.xml"):
+        open_ports, scanned_ranges, hosts_up = parse_xml_progress(
+            f"{resume_file}.xml")
         state.open_ports.update(open_ports)
         state.scanned_ports.update(scanned_ranges)
 
         if open_ports:
-            for ip, ports in open_ports.items():
+            # Sort IP addresses numerically
+            sorted_ips = sorted(open_ports.keys(), key=lambda x: [
+                                int(ip) for ip in x.split('.')])
+            for ip in sorted_ips:
+                ports = open_ports[ip]
                 print_success(
                     f"Open TCP ports found for {ip}: {', '.join(ports)}")
             save_state(state)
@@ -429,17 +466,21 @@ def scan_udp_ports(target: str, state: ScanState, current_host: int, total_hosts
     print_header(f"🔍 UDP PORT SCAN PHASE (Host {current_host}/{total_hosts})")
     print_info(f"Scanning UDP ports for {target}")
 
-    resume_file = f"nmap-udp-ports-{target.replace('/', '_')}.xml"
-    if os.path.exists(resume_file) and state.scanned_udp_ports.get(target):
+    # Create host-specific folder
+    host_folder = os.path.join(state.network_folder, target.replace('/', '_'))
+    resume_file = os.path.join(
+        host_folder, f"nmap-udp-ports-{target.replace('/', '_')}")
+
+    if os.path.exists(f"{resume_file}.gnmap") and state.scanned_udp_ports.get(target):
         print_info("Resuming previous UDP port scan...")
-        command = ["nmap", "--resume", resume_file, target]
+        command = ["nmap", "-v", "--resume", f"{resume_file}.gnmap", target]
     else:
-        command = ["nmap", "-sU", "--top-ports", "1000", "--open", "-Pn", "-T4",
-                   "--stats-every", "5s", "-oX", resume_file, target]
+        command = ["nmap", "-v", "-sU", "--top-ports", "1000", "--open", "-Pn", "-T4",
+                   "--stats-every", "5s", "-oA", resume_file, target]
 
     state.phase_completed = "udp_port_scan"
     state.current_target = target
-    success, output = run_nmap_command(command, state)
+    success, output = run_nmap_command(command, state, resume_file)
 
     if not success:
         if output == "Interrupted by user":
@@ -450,8 +491,9 @@ def scan_udp_ports(target: str, state: ScanState, current_host: int, total_hosts
     time.sleep(1)
 
     # Parse results from XML
-    if os.path.exists(resume_file):
-        open_ports, scanned_ranges, hosts_up = parse_xml_progress(resume_file)
+    if os.path.exists(f"{resume_file}.xml"):
+        open_ports, scanned_ranges, hosts_up = parse_xml_progress(
+            f"{resume_file}.xml")
         state.open_udp_ports.update(open_ports)
         state.scanned_udp_ports.update(scanned_ranges)
 
@@ -547,13 +589,39 @@ def parse_comprehensive_scan(xml_file: str) -> Dict:
 
                     # Check for vulnerabilities
                     if 'vulners' in script.get('id', '').lower():
+                        current_vuln = None
                         for table in script.findall('.//table'):
-                            vuln_info = {
-                                'cve': table.get('key', 'unknown'),
-                                'score': table.find('.//elem[@key="cvss"]').text if table.find('.//elem[@key="cvss"]') is not None else 'unknown',
-                                'summary': table.find('.//elem[@key="summary"]').text if table.find('.//elem[@key="summary"]') is not None else 'unknown'
-                            }
-                            results['vulnerabilities'].append(vuln_info)
+                            # Start a new vulnerability if we find a CVE
+                            if table.get('key', '').startswith('cve:'):
+                                if current_vuln:
+                                    results['vulnerabilities'].append(
+                                        current_vuln)
+                                current_vuln = {
+                                    'cve': table.get('key', 'unknown'),
+                                    'score': 'unknown',
+                                    'summary': 'unknown'
+                                }
+                                # Get CVSS score
+                                cvss_elem = table.find('.//elem[@key="cvss"]')
+                                if cvss_elem is not None:
+                                    current_vuln['score'] = cvss_elem.text
+                                # Get summary
+                                summary_elem = table.find(
+                                    './/elem[@key="summary"]')
+                                if summary_elem is not None:
+                                    current_vuln['summary'] = summary_elem.text
+                            # Add additional information to current vulnerability
+                            elif current_vuln:
+                                if table.get('key', '') == 'cvss':
+                                    current_vuln['score'] = table.find(
+                                        './/elem').text if table.find('.//elem') is not None else 'unknown'
+                                elif table.get('key', '') == 'summary':
+                                    current_vuln['summary'] = table.find(
+                                        './/elem').text if table.find('.//elem') is not None else 'unknown'
+
+                        # Add the last vulnerability if exists
+                        if current_vuln:
+                            results['vulnerabilities'].append(current_vuln)
 
                 results['ports'].append(port_info)
 
@@ -633,7 +701,7 @@ def display_scan_results(results: Dict):
                     print_warning(f"CVE: {vuln['cve']}")
                 if vuln['summary'] != 'unknown':
                     print_warning(f"Summary: {vuln['summary']}")
-                print()  # Empty line for readability
+            print()  # Empty line for readability
 
         # Show vulnerability statistics
         total_vulns = len(results['vulnerabilities'])
@@ -760,7 +828,7 @@ def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
                 ])
 
         ports_table = Table(ports_data, colWidths=[
-                            0.8*inch, 0.8*inch, 1.2*inch, 1.2*inch, 2*inch])
+            0.8*inch, 0.8*inch, 1.2*inch, 1.2*inch, 2*inch])
         ports_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E74C3C')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -775,48 +843,68 @@ def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
         story.append(ports_table)
         story.append(Spacer(1, 20))
 
-        # Script Results
-        story.append(Paragraph("Script Results", heading_style))
-        for port in results['ports']:
-            if port.get('scripts'):
-                story.append(
-                    Paragraph(f"Port {port['port']}/{port['protocol']}", styles['Heading3']))
-                for script in port['scripts']:
+        # Script Results (only if there are any)
+        has_script_results = any(port.get('scripts')
+                                 for port in results['ports'] if port['state'] == 'open')
+        if has_script_results:
+            story.append(Paragraph("Script Results", heading_style))
+            for port in results['ports']:
+                if port['state'] == 'open' and port.get('scripts'):
                     story.append(
-                        Paragraph(f"Script: {script['id']}", styles['Heading4']))
-                    # Escape HTML-like tags in script output
-                    escaped_output = html.escape(script['output'])
-                    story.append(Paragraph(escaped_output, styles['Normal']))
-                    story.append(Spacer(1, 10))
+                        Paragraph(f"Port {port['port']}/{port['protocol']}", styles['Heading3']))
+                    for script in port['scripts']:
+                        story.append(
+                            Paragraph(f"Script: {script['id']}", styles['Heading4']))
+                        # Escape HTML-like tags in script output
+                        escaped_output = html.escape(script['output'])
+                        story.append(
+                            Paragraph(escaped_output, styles['Normal']))
+                        story.append(Spacer(1, 10))
 
     # Vulnerabilities
     if results['vulnerabilities']:
         story.append(Paragraph("Vulnerabilities", heading_style))
-        vuln_data = [[
-            Paragraph("CVE", cell_style),
-            Paragraph("CVSS Score", cell_style),
-            Paragraph("Summary", cell_style)
-        ]]
+        # Group vulnerabilities by severity
+        vulnerabilities_by_severity = {}
         for vuln in results['vulnerabilities']:
-            vuln_data.append([
-                Paragraph(vuln['cve'], cell_style),
-                Paragraph(vuln['score'], cell_style),
-                Paragraph(vuln['summary'], cell_style)
-            ])
+            try:
+                severity = float(
+                    vuln['score']) if vuln['score'] != 'unknown' else 0.0
+                if severity >= 7.0:  # Only show high and critical vulnerabilities
+                    if severity not in vulnerabilities_by_severity:
+                        vulnerabilities_by_severity[severity] = []
+                    vulnerabilities_by_severity[severity].append(vuln)
+            except (ValueError, TypeError):
+                continue
 
-        vuln_table = Table(vuln_data, colWidths=[1.5*inch, 1*inch, 3.5*inch])
-        vuln_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F39C12')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP')  # Align content to top
-        ]))
-        story.append(vuln_table)
+        # Sort by severity (descending) and display
+        for severity in sorted(vulnerabilities_by_severity.keys(), reverse=True):
+            story.append(
+                Paragraph(f"Severity: {severity:.1f}", styles['Heading3']))
+            for vuln in vulnerabilities_by_severity[severity]:
+                vuln_data = []
+                if vuln['cve'] != 'unknown':
+                    vuln_data.append(
+                        [Paragraph("CVE", cell_style), Paragraph(vuln['cve'], cell_style)])
+                vuln_data.append(
+                    [Paragraph("Score", cell_style), Paragraph(vuln['score'], cell_style)])
+                if vuln['summary'] != 'unknown':
+                    vuln_data.append(
+                        [Paragraph("Summary", cell_style), Paragraph(vuln['summary'], cell_style)])
+
+                vuln_table = Table(vuln_data, colWidths=[2*inch, 4*inch])
+                vuln_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F39C12')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(vuln_table)
+                story.append(Spacer(1, 10))
 
     # Build the PDF
     doc.build(story)
@@ -897,16 +985,17 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
                 service_stats[service_key] = service_stats.get(
                     service_key, 0) + 1
 
-                # Track common services
+                # Track common services with host:port combinations
                 if service not in common_services:
                     common_services[service] = {
                         'count': 0,
-                        'versions': set(),
-                        'ports': set()
+                        'hosts': {}  # host -> (port, version)
                     }
                 common_services[service]['count'] += 1
-                common_services[service]['versions'].add(version)
-                common_services[service]['ports'].add(port_num)
+                if host not in common_services[service]['hosts']:
+                    common_services[service]['hosts'][host] = []
+                common_services[service]['hosts'][host].append(
+                    (port_num, version))
 
         # Count OS types
         if results.get('os'):
@@ -930,20 +1019,8 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
          Paragraph(f"{open_ports_total/total_hosts:.1f}" if total_hosts > 0 else "0", cell_style)]
     ]
 
-    # Protocol Distribution
-    story.append(Paragraph("Protocol Distribution", heading_style))
-    protocol_data = [[Paragraph("Protocol", cell_style), Paragraph(
-        "Count", cell_style), Paragraph("Percentage", cell_style)]]
-    for protocol, count in sorted(protocol_stats.items()):
-        percentage = (count / open_ports_total) * \
-            100 if open_ports_total > 0 else 0
-        protocol_data.append([
-            Paragraph(protocol, cell_style),
-            Paragraph(str(count), cell_style),
-            Paragraph(f"{percentage:.1f}%", cell_style)
-        ])
-    protocol_table = Table(protocol_data, colWidths=[2*inch, 1*inch, 1*inch])
-    protocol_table.setStyle(TableStyle([
+    stats_table = Table(stats_data, colWidths=[3*inch, 1*inch])
+    stats_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498DB')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -953,55 +1030,30 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
         ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
-    story.append(protocol_table)
+    story.append(stats_table)
     story.append(Spacer(1, 20))
 
-    # Common Services
+    # Common Services with host:port combinations
     story.append(Paragraph("Common Services", heading_style))
-    services_data = [[
-        Paragraph("Service", cell_style),
-        Paragraph("Count", cell_style),
-        Paragraph("Ports", cell_style),
-        Paragraph("Versions", cell_style)
-    ]]
     # Top 10 services
     for service, info in sorted(common_services.items(), key=lambda x: x[1]['count'], reverse=True)[:10]:
-        services_data.append([
-            Paragraph(service, cell_style),
-            Paragraph(str(info['count']), cell_style),
-            Paragraph(', '.join(map(str, sorted(info['ports']))), cell_style),
-            Paragraph(', '.join(sorted(info['versions'])), cell_style)
-        ])
-    services_table = Table(services_data, colWidths=[
-                           2*inch, 1*inch, 1.5*inch, 1.5*inch])
-    services_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    story.append(services_table)
-    story.append(Spacer(1, 20))
-
-    # Operating Systems
-    if os_stats:
-        story.append(Paragraph("Operating Systems", heading_style))
-        os_data = [[Paragraph("OS", cell_style), Paragraph(
-            "Count", cell_style), Paragraph("Percentage", cell_style)]]
-        for os_name, count in sorted(os_stats.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / total_hosts) * 100
-            os_data.append([
-                Paragraph(os_name, cell_style),
-                Paragraph(str(count), cell_style),
-                Paragraph(f"{percentage:.1f}%", cell_style)
-            ])
-        os_table = Table(os_data, colWidths=[3*inch, 1*inch, 1*inch])
-        os_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E74C3C')),
+        story.append(
+            Paragraph(f"{service} (Found on {info['count']} hosts)", styles['Heading3']))
+        service_data = [[
+            Paragraph("Host", cell_style),
+            Paragraph("Port", cell_style),
+            Paragraph("Version", cell_style)
+        ]]
+        for host, ports in info['hosts'].items():
+            for port, version in ports:
+                service_data.append([
+                    Paragraph(host, cell_style),
+                    Paragraph(str(port), cell_style),
+                    Paragraph(version, cell_style)
+                ])
+        service_table = Table(service_data, colWidths=[2*inch, 1*inch, 3*inch])
+        service_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2ECC71')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -1010,34 +1062,10 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
             ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
-        story.append(os_table)
-        story.append(Spacer(1, 20))
+        story.append(service_table)
+        story.append(Spacer(1, 10))
 
-    # Vulnerabilities
-    if vulnerability_stats:
-        story.append(Paragraph("Vulnerabilities by Severity", heading_style))
-        vuln_data = [[Paragraph("Severity", cell_style),
-                      Paragraph("Count", cell_style)]]
-        for severity, count in sorted(vulnerability_stats.items(), key=lambda x: float(x[0]) if x[0] != 'unknown' else 0, reverse=True):
-            vuln_data.append([
-                Paragraph(severity, cell_style),
-                Paragraph(str(count), cell_style)
-            ])
-        vuln_table = Table(vuln_data, colWidths=[3*inch, 2*inch])
-        vuln_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F39C12')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        story.append(vuln_table)
-        story.append(Spacer(1, 20))
-
-    # Most Common Ports
+    # Most Common Open Ports
     story.append(Paragraph("Most Common Open Ports", heading_style))
     ports_data = [[Paragraph("Port", cell_style), Paragraph(
         "Count", cell_style), Paragraph("Percentage", cell_style)]]
@@ -1062,6 +1090,30 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
     story.append(ports_table)
+    story.append(Spacer(1, 20))
+
+    # Vulnerabilities by Severity
+    if vulnerability_stats:
+        story.append(Paragraph("Vulnerabilities by Severity", heading_style))
+        vuln_data = [[Paragraph("Severity", cell_style),
+                      Paragraph("Count", cell_style)]]
+        for severity, count in sorted(vulnerability_stats.items(), key=lambda x: float(x[0]) if x[0] != 'unknown' else 0, reverse=True):
+            vuln_data.append([
+                Paragraph(severity, cell_style),
+                Paragraph(str(count), cell_style)
+            ])
+        vuln_table = Table(vuln_data, colWidths=[3*inch, 2*inch])
+        vuln_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F39C12')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#ECF0F1')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(vuln_table)
 
     # Build the PDF
     doc.build(story)
@@ -1070,7 +1122,7 @@ def generate_network_summary_pdf(all_results: Dict, filename: str = "network_sum
 
 def main():
     """Main function to orchestrate the scan process."""
-    print_header("🚀 NMAP SCAN SCRIPT")
+    global state
 
     # Check if nmap is installed
     try:
@@ -1083,9 +1135,24 @@ def main():
     # Initialize or load state
     state = load_state() or ScanState()
 
+    print_header("⚙️  SCAN CONFIGURATION")
+    print_info("Network Name:")
+    # Get network alias
+    network_alias = input(
+        f"{COLORS['CYAN']}Enter a name for this network scan: {COLORS['END']}").strip()
+    if not network_alias:
+        network_alias = f"scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Create network folder
+    network_folder = os.path.join(os.getcwd(), network_alias)
+    os.makedirs(network_folder, exist_ok=True)
+    state.network_folder = network_folder  # Store network folder in state
+
+    print()  # Add spacing
+    print_info("Target IP/Range:")
     if state.targets:
-        print_info("Found previous scan state:")
-        print_info(f"Targets: {', '.join(state.targets)}")
+        print_header("📊 PREVIOUS SCAN STATE")
+        print_info("Targets: " + ", ".join(state.targets))
         print_info(f"Last phase: {state.phase_completed}")
         for target in state.targets:
             if state.open_ports.get(target):
@@ -1112,11 +1179,6 @@ def main():
             targets = input(
                 f"{COLORS['CYAN']}Enter target IP address or range (e.g., 192.168.1.1 or 192.168.1.0/24): {COLORS['END']}").strip().split(',')
     else:
-        print_info(
-            "This script will perform a comprehensive network scan in two phases:")
-        print_info("1. Full port scan to identify all open ports")
-        print_info("2. Detailed service and vulnerability scan on open ports")
-
         targets = input(
             f"{COLORS['CYAN']}Enter target IP address or range (e.g., 192.168.1.1 or 192.168.1.0/24): {COLORS['END']}").strip().split(',')
 
@@ -1124,27 +1186,36 @@ def main():
         print_error("Invalid target(s). Exiting.")
         return
 
+    print_header("🔍 SCAN TYPE SELECTION")
+    print_info("1. TCP scan only")
+    print_info("2. UDP scan only")
+    print_info("3. Both TCP and UDP scans")
+
+    while True:
+        try:
+            scan_choice = int(
+                input(f"{COLORS['CYAN']}Enter your choice (1-3): {COLORS['END']}"))
+            if scan_choice in [1, 2, 3]:
+                break
+            print_error("Please enter a valid choice (1-3)")
+        except ValueError:
+            print_error("Please enter a number between 1 and 3")
+
+    # Set scan type flags based on user choice
+    scan_tcp = scan_choice in [1, 3]  # True for choices 1 and 3
+    scan_udp = scan_choice in [2, 3]  # True for choices 2 and 3
+
     # If targets changed, clear the state
     if state.targets and set(state.targets) != set(targets):
         print_warning("Targets changed. Starting new scan.")
         clear_state()
         state = ScanState()
+        state.network_folder = network_folder
 
-    # Select scan type
-    print_header("🔍 SCAN TYPE SELECTION")
-    print_info("Choose which type of scan to perform:")
-    print_info("1. TCP ports only")
-    print_info("2. UDP ports only")
-    print_info("3. Both TCP and UDP ports")
-
-    scan_type = input(
-        f"{COLORS['CYAN']}Enter your choice (1-3) [3]: {COLORS['END']}").strip()
-
-    if scan_type not in ["1", "2", "3"]:
-        scan_type = "3"  # Default to both if invalid input
-
-    scan_tcp = scan_type in ["1", "3"]
-    scan_udp = scan_type in ["2", "3"]
+    # Create host folders
+    for target in targets:
+        host_folder = os.path.join(network_folder, target.replace('/', '_'))
+        os.makedirs(host_folder, exist_ok=True)
 
     state.targets = targets
     save_state(state)
@@ -1155,9 +1226,7 @@ def main():
 
     # Step 1: Full TCP port scan
     if scan_tcp and (not state.phase_completed or state.phase_completed == "tcp_port_scan"):
-        print_header("🔍 FULL TCP PORT SCAN")
         for i, target in enumerate(targets, 1):
-            print_info(f"Scanning all 65535 TCP ports for {target}")
             open_ports = scan_tcp_ports(target, state, i, total_hosts)
             if open_ports:
                 all_open_ports.update(open_ports)
@@ -1194,33 +1263,46 @@ def main():
         if scan_tcp and all_open_ports and (not state.phase_completed or
                                             state.phase_completed in ["tcp_port_scan", "udp_port_scan", "comprehensive_scan_tcp"]):
             print_info("Scanning TCP ports...")
-            for i, (target, ports) in enumerate(all_open_ports.items(), 1):
+            # Sort IP addresses numerically before scanning
+            sorted_ips = sorted(all_open_ports.keys(), key=lambda x: [
+                                int(ip) for ip in x.split('.')])
+            for target in sorted_ips:
+                ports = all_open_ports[target]
                 # Format ports as comma-separated string
                 ports_str = ','.join(ports) if isinstance(
                     ports, list) else str(ports)
 
+                # Create folder for this specific IP
+                ip_folder = os.path.join(
+                    state.network_folder, target.replace('/', '_'))
+                os.makedirs(ip_folder, exist_ok=True)
+                output_prefix = os.path.join(ip_folder, f"tcp-comprehensive")
+
                 # Check if we're on Windows
                 if os.name == 'nt':
                     tcp_command = [
-                        "nmap", "-sV", "-O", "-sC", "-T4", "-Pn",
-                        "--script=vulners,http-enum,ftp-anon",
+                        "nmap", "-v", "-sV", "-O", "-sC", "-T4", "-Pn",
+                        "--script=vulners,http-enum,ftp-anon,smb-os-discovery,smb-enum-shares,smb-vuln-ms17-010",
                         "--version-all", "--traceroute",
                         "--stats-every", "5s",
-                        "-oX", f"nmap-tcp-comprehensive-{target.replace('/', '_')}.xml",
+                        "-oA", output_prefix,
                         "-p", ports_str, target
                     ]
                 else:
                     tcp_command = [
-                        "sudo", "nmap", "-sV", "-O", "-sC", "-T4", "-Pn",
-                        "--script=vulners,http-enum,ftp-anon",
+                        "sudo", "nmap", "-v", "-sV", "-O", "-sC", "-T4", "-Pn",
+                        "--script=vulners,http-enum,ftp-anon,smb-os-discovery,smb-enum-shares,smb-vuln-ms17-010",
                         "--version-all", "--traceroute",
                         "--stats-every", "5s",
-                        "-oX", f"nmap-tcp-comprehensive-{target.replace('/', '_')}.xml",
+                        "-oA", output_prefix,
                         "-p", ports_str, target
                     ]
                 state.phase_completed = "comprehensive_scan_tcp"
                 state.current_target = target
-                tcp_success, output = run_nmap_command(tcp_command, state)
+                print_info(
+                    f"Starting comprehensive scan for {target} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                tcp_success, output = run_nmap_command(
+                    tcp_command, state, resume_file=output_prefix, is_comprehensive=True)
                 if not tcp_success:
                     print_warning(
                         f"TCP comprehensive scan for {target} was not completed successfully")
@@ -1229,40 +1311,53 @@ def main():
                         f"TCP comprehensive scan for {target} completed successfully")
                     # Parse and display TCP results
                     tcp_results = parse_comprehensive_scan(
-                        f"nmap-tcp-comprehensive-{target.replace('/', '_')}.xml")
+                        f"{output_prefix}.xml")
                     display_scan_results(tcp_results)
                     # Generate PDF report
                     pdf_file = generate_pdf_report(
-                        tcp_results, f"nmap-tcp-report-{target.replace('/', '_')}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+                        tcp_results, os.path.join(ip_folder, f"tcp-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"))
                     print_success(f"TCP scan report generated: {pdf_file}")
 
         # Run comprehensive scan for UDP ports
         if scan_udp and all_open_udp_ports and (not state.phase_completed or
                                                 state.phase_completed in ["tcp_port_scan", "udp_port_scan", "comprehensive_scan_udp"]):
             print_info("Scanning UDP ports...")
-            for i, (target, ports) in enumerate(all_open_udp_ports.items(), 1):
+            # Sort IP addresses numerically before scanning
+            sorted_ips = sorted(all_open_udp_ports.keys(), key=lambda x: [
+                                int(ip) for ip in x.split('.')])
+            for target in sorted_ips:
+                ports = all_open_udp_ports[target]
+                # Create folder for this specific IP
+                ip_folder = os.path.join(
+                    state.network_folder, target.replace('/', '_'))
+                os.makedirs(ip_folder, exist_ok=True)
+                output_prefix = os.path.join(ip_folder, f"udp-comprehensive")
+
                 # Check if we're on Windows
                 if os.name == 'nt':
                     udp_command = [
-                        "nmap", "-sU", "-sV", "-O", "-sC", "-T4", "-Pn",
+                        "nmap", "-v", "-sU", "-sV", "-O", "-sC", "-T4", "-Pn",
                         "--script=dns-nsid,ntp-monlist,snmp-info,dhcp-discover,tftp-enum",
                         "--version-all",
                         "--stats-every", "5s",
-                        "-oX", f"nmap-udp-comprehensive-{target.replace('/', '_')}.xml",
+                        "-oA", output_prefix,
                         "-p", ports, target
                     ]
                 else:
                     udp_command = [
-                        "sudo", "nmap", "-sU", "-sV", "-O", "-sC", "-T4", "-Pn",
+                        "sudo", "nmap", "-v", "-sU", "-sV", "-O", "-sC", "-T4", "-Pn",
                         "--script=dns-nsid,ntp-monlist,snmp-info,dhcp-discover,tftp-enum",
                         "--version-all",
                         "--stats-every", "5s",
-                        "-oX", f"nmap-udp-comprehensive-{target.replace('/', '_')}.xml",
+                        "-oA", output_prefix,
                         "-p", ports, target
                     ]
                 state.phase_completed = "comprehensive_scan_udp"
                 state.current_target = target
-                udp_success, output = run_nmap_command(udp_command, state)
+                print_info(
+                    f"Starting comprehensive scan for {target} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                udp_success, output = run_nmap_command(
+                    udp_command, state, resume_file=output_prefix, is_comprehensive=True)
                 if not udp_success:
                     print_warning(
                         f"UDP comprehensive scan for {target} was not completed successfully")
@@ -1271,17 +1366,12 @@ def main():
                         f"UDP comprehensive scan for {target} completed successfully")
                     # Parse and display UDP results
                     udp_results = parse_comprehensive_scan(
-                        f"nmap-udp-comprehensive-{target.replace('/', '_')}.xml")
+                        f"{output_prefix}.xml")
                     display_scan_results(udp_results)
                     # Generate PDF report
                     pdf_file = generate_pdf_report(
-                        udp_results, f"nmap-udp-report-{target.replace('/', '_')}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+                        udp_results, os.path.join(ip_folder, f"udp-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"))
                     print_success(f"UDP scan report generated: {pdf_file}")
-
-        # Only mark as complete if all requested scans were successful
-        if (not scan_tcp or tcp_success) and (not scan_udp or udp_success):
-            state.phase_completed = "complete"
-            save_state(state)
 
         # After all scans are complete, generate the network summary
         if (scan_tcp and all_open_ports) or (scan_udp and all_open_udp_ports):
@@ -1290,14 +1380,18 @@ def main():
 
             # Collect all scan results
             for target in all_open_ports.keys():
+                ip_folder = os.path.join(
+                    state.network_folder, target.replace('/', '_'))
                 tcp_results = parse_comprehensive_scan(
-                    f"nmap-tcp-comprehensive-{target.replace('/', '_')}.xml")
+                    os.path.join(ip_folder, "tcp-comprehensive.xml"))
                 if tcp_results:
                     all_results[target] = tcp_results
 
             for target in all_open_udp_ports.keys():
+                ip_folder = os.path.join(
+                    state.network_folder, target.replace('/', '_'))
                 udp_results = parse_comprehensive_scan(
-                    f"nmap-udp-comprehensive-{target.replace('/', '_')}.xml")
+                    os.path.join(ip_folder, "udp-comprehensive.xml"))
                 if udp_results:
                     if target in all_results:
                         # Merge UDP results with existing TCP results
@@ -1306,8 +1400,9 @@ def main():
                     else:
                         all_results[target] = udp_results
 
-            # Generate the summary PDF
-            summary_pdf = generate_network_summary_pdf(all_results)
+            # Generate the summary PDF in the network folder
+            summary_pdf = generate_network_summary_pdf(all_results, os.path.join(
+                state.network_folder, "network_summary_report.pdf"))
             print_success(f"Network summary report generated: {summary_pdf}")
     else:
         print_warning("No open ports found to perform comprehensive scan")
