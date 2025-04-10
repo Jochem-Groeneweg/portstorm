@@ -14,6 +14,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 import html
 
+"""
+PortStorm - Advanced Network Scanning Tool
+A powerful and aggressive network scanning utility built on Nmap
+"""
+
 # Global state variable for error logging
 state = None
 
@@ -715,7 +720,7 @@ def display_scan_results(results: Dict):
                 f"Percentage of high/critical vulnerabilities: {(high_vulns/total_vulns)*100:.1f}%")
 
 
-def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
+def generate_pdf_report(results: Dict, filename: str = "portstorm_report.pdf"):
     """Generate a professional PDF report from scan results."""
     doc = SimpleDocTemplate(filename, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -911,7 +916,7 @@ def generate_pdf_report(results: Dict, filename: str = "nmap_scan_report.pdf"):
     return filename
 
 
-def generate_network_summary_pdf(all_results: Dict, filename: str = "network_summary_report.pdf"):
+def generate_network_summary_pdf(all_results: Dict, filename: str = "portstorm_network_summary.pdf"):
     """Generate a comprehensive network summary PDF report."""
     doc = SimpleDocTemplate(filename, pagesize=letter)
     styles = getSampleStyleSheet()
