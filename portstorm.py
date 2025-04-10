@@ -423,10 +423,17 @@ def scan_tcp_ports(target: str, state: ScanState, current_host: int, total_hosts
     # Check if we can resume from previous scan
     if os.path.exists(f"{resume_file}.gnmap") and state.scanned_ports.get(target):
         print_info("Resuming previous TCP port scan...")
-        command = ["nmap", "-v", "--resume", f"{resume_file}.gnmap", target]
+        base_command = ["nmap", "-v", "--resume",
+                        f"{resume_file}.gnmap", target]
     else:
-        command = ["nmap", "-v", "-p-", "--open", "-T4", "-Pn",
-                   "--stats-every", "5s", "-oA", resume_file, target]
+        base_command = ["nmap", "-v", "-p-", "--open", "-T4", "-Pn",
+                        "--stats-every", "5s", "-oA", resume_file, target]
+
+    # Add sudo if not on Windows
+    if os.name != 'nt':
+        command = ["sudo"] + base_command
+    else:
+        command = base_command
 
     state.phase_completed = "tcp_port_scan"
     state.current_target = target
@@ -478,10 +485,17 @@ def scan_udp_ports(target: str, state: ScanState, current_host: int, total_hosts
 
     if os.path.exists(f"{resume_file}.gnmap") and state.scanned_udp_ports.get(target):
         print_info("Resuming previous UDP port scan...")
-        command = ["nmap", "-v", "--resume", f"{resume_file}.gnmap", target]
+        base_command = ["nmap", "-v", "--resume",
+                        f"{resume_file}.gnmap", target]
     else:
-        command = ["nmap", "-v", "-sU", "--top-ports", "1000", "--open", "-Pn", "-T4",
-                   "--stats-every", "5s", "-oA", resume_file, target]
+        base_command = ["nmap", "-v", "-sU", "--top-ports", "1000", "--open", "-Pn", "-T4",
+                        "--stats-every", "5s", "-oA", resume_file, target]
+
+    # Add sudo if not on Windows
+    if os.name != 'nt':
+        command = ["sudo"] + base_command
+    else:
+        command = base_command
 
     state.phase_completed = "udp_port_scan"
     state.current_target = target
@@ -1136,6 +1150,13 @@ def main():
         print_error(
             "Nmap is not installed or not in PATH. Please install nmap first.")
         return
+
+    # Check if running with sudo on non-Windows systems
+    if os.name != 'nt':
+        if os.geteuid() != 0:
+            print_error(
+                "This script needs to be run with sudo privileges.")
+            return
 
     # Initialize or load state
     state = load_state() or ScanState()
